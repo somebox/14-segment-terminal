@@ -8,6 +8,7 @@
 #include <WiFiManager.h>
 #include "is31fl3733.hpp"
 #include "FourteenSegmentAlpha.h"
+#include "Ticker.h"
 
 using namespace IS31FL3733;
 
@@ -22,7 +23,7 @@ uint8_t i2c_write_reg(const uint8_t i2c_addr, const uint8_t reg_addr, const uint
 
 #define NUM_QUOTES 14
 const String quotes[NUM_QUOTES] = {
-  "Success is not final, failure is not fatal - It is the courage to continue that counts.",
+  "Tell me and I forget. Teach me and I remember. Involve me and I learn.",
   "The only way to do great work is to love what you do. If you haven't found it yet, keep looking.",
   "Life is what happens when you're busy making other plans.",
   "Be the change that you wish to see in the world.",
@@ -34,7 +35,7 @@ const String quotes[NUM_QUOTES] = {
   "It is better to be hated for what you are than to be loved for what you are not.",
   "Life is like riding a bicycle. To keep your balance, you must keep moving.",
   "If you can't explain it to a six year old, you don't understand it yourself.",
-  "Insanity is doing the same thing, over and over again, but expecting different results.",
+  "Insanity is doing the same thing over and over, but expecting different results.",
   "I have not failed. I've just found 10,000 ways that won't work.",
 };
 // Timezone config
@@ -48,6 +49,9 @@ const char* TZ_INFO    = "CET-1CEST-2,M3.5.0/02:00:00,M10.5.0/03:00:00";  // Swi
 
 // Wifi
 WiFiManager wm;   // looking for credentials? don't need em! ... google "ESP32 WiFiManager"
+
+// timer
+Ticker timer;
 
 // Time 
 tm timeinfo;
@@ -353,7 +357,7 @@ void random_animation(){
 void draw_character(uint16_t ascii_code, int row, int col, uint8_t level, bool rand=false){
   // get the bit pattern for the character
   uint16_t pattern = alphafonttable[constrain(ascii_code, 0, 126)];
-  if (ascii_code==33 || ascii_code==46 || ascii_code==63){   // draw period, deicmal, and question with a dot
+  if (ascii_code==33 || ascii_code==46 || ascii_code==63){   // draw period, decimal, and question with a dot
     pattern |= 1 << 7;
   }
   row = constrain(row, 0, SCREEN_HEIGHT-1);
@@ -377,13 +381,35 @@ void draw_character(uint16_t ascii_code, int row, int col, uint8_t level, bool r
 
 }
 
+void draw_segment(int row, int col, int segment, int value=1){
+  // draw a single segment on the display
+  // row can be 0-3, col can be 0-23, segment can be 0-15
+  // value is the brightness of the segment, 0-255
+  row = constrain(row, 0, SCREEN_HEIGHT-1);
+  col = constrain(col, 0, SCREEN_WIDTH-1);
+  int board = row;
+  if (col > MODULE_WIDTH-1) {
+    board += MODULE_HEIGHT;
+    col = col % MODULE_WIDTH;
+  }
+  draw_segment_pattern(drivers[board], col, 1 << segment, value);
+}
+
 // word wrap and pad spaces to make long sentence fit on the display
 // https://chat.openai.com/share/22465504-3300-4ccd-8cb9-29fd031747d7
 
-String wrap_string(const String& s) {
+String wrap_string(const String& source_string) {
+    String s = source_string;
     String result = "";
     String currentLine = "";
     int spaceLeft = SCREEN_WIDTH;
+
+    // pad string with spaces so it's exactly 48 characters long
+    String padded = s;
+    while (padded.length() < 48) {
+        padded += ' ';
+    }
+    s = padded;
 
     // Splitting the input string into words
     int startPos = 0;
@@ -429,14 +455,21 @@ String wrap_string(const String& s) {
 void draw_string(String str, int row, int col, int level=100, bool rand=false){
   // draw a string on the display
   if (!rand) Serial.printf("draw_string('%s', %d, %d, %d)\n", str.c_str(), row, col, level);
-  for (char c : str) {
+  int position = 0;
+  for (char c : str){
+    if (str[position] == '.') c=' ';
     draw_character(c, row, col, level, rand);
+    if (position < str.length() - 1 && str[position + 1] == '.') {
+      // set bit 7 of the dig_buffer to turn on the decimal point
+      dig_buffer[row][col*WIDTH+7] = level; 
+    }
     col++;
     if (col > 23) {  // crude wrapping
       row++;
       col = 0;
     }
     if (row > 3) { break; }
+    position++;
   }
 }
 
@@ -453,6 +486,7 @@ void test_module_order(){
     draw_string(s, row, col, 255);
   }
 }
+
 void random_characters(int level=100){
   uint16_t letter = random(32, 127);
 
@@ -475,6 +509,57 @@ void random_characters(int level=100){
   if (random(5)==0) { r = random(4); c = random(12); } 
   draw_segment_pattern(drivers[r], c, pattern, level);
 }
+
+
+
+static float counter=1; // tracks time for animation
+static float wave1_period = 0.1;
+static float wave2_period = 0.01;
+static float wave3_period = 2;
+static long frame = 1;
+static float scale = 1000.0;
+
+void spirals(){
+  // loop through rows and cols (SCREEN_WIDTH x SCREEN_HEIGHT) and
+  // call draw_character for each element
+  
+  for (float col=0; col<SCREEN_WIDTH; col++){
+    for (float row=0; row<SCREEN_HEIGHT; row++){  
+      // calculate brightness of each segment based on time and position, using the three wave periods
+      float level = cos((col+counter)/(counter*5)+wave1_period) * sin((row+counter)/20.0+wave2_period);
+     //level += cos(frame/wave2_period) * cos(row/wave2_period)+sin(col/wave2_period);
+      // level += cos(frame/wave3_period) * cos(row/wave3_period);
+      //level /= 2.0;
+      // draw character at position row, col, with brightness level
+      draw_character(map(level*100, -100.0, 100.0, 7, 15), row, col, map(sin(cos(col)+cos(row)+wave3_period)*1000, -1000, 1000, 0, 255));            
+    }
+  }
+  // slowly adjust frequencies of the three waves
+  wave1_period = wave1_period + 0.001;
+  wave2_period = wave2_period + 0.002;
+  wave3_period = wave3_period + 0.03;
+
+  // increment frame counter
+  counter += sin((millis()%120000)/1000.0)/500.0;
+  counter = fmod(counter, 2*PI/10);
+  frame++;
+}
+
+#define TIMER_PERIOD 5
+static int last_frames = 0;
+void timerStatusMessage(){
+  Serial.println("-----");
+  Serial.printf("counter: %f\n", counter);
+  Serial.printf("wave1_period: %f\n", wave1_period);
+  Serial.printf("wave2_period: %f\n", wave2_period);
+  Serial.printf("wave3_period: %f\n", wave3_period);
+  Serial.printf("frame: %d\n", frame);
+  float fps = (frame - last_frames) / TIMER_PERIOD;
+  Serial.printf("fps: %f\n", fps);
+  last_frames = frame;
+
+}
+
 
 void setup()
 {
@@ -508,7 +593,7 @@ void setup()
     drivers[d].Init();
 
     Serial.println(" -> Setting global current control");
-    drivers[d].SetGCC(50);
+    drivers[d].SetGCC(150);
 
     Serial.println(" -> Setting PWM state for all LEDs to half power");
     drivers[d].SetLEDMatrixPWM(140);
@@ -517,6 +602,8 @@ void setup()
     drivers[d].SetLEDMatrixState(LED_STATE::ON);
     drivers[d].SetLEDMatrixPWM(50); // set brightness
   }
+
+  timer.attach(TIMER_PERIOD, timerStatusMessage);
 
   delay(100);
 
@@ -602,35 +689,6 @@ const String msgs[] = {
 //   cycle = fmod(cycle + 0.5, 100.0);
 // }
 
-void spirals(){
-  static float counter=10000; // tracks time for animation
-  // loop through rows and cols (SCREEN_WIDTH x SCREEN_HEIGHT) and
-  // call draw_character for each element
-  static float wave1_period = 0.1;
-  static float wave2_period = 0.01;
-  static float wave3_period = 2;
-
-  long frame = 0.001+counter;
-  
-  for (float col=0; col<SCREEN_WIDTH; col++){
-    for (float row=0; row<SCREEN_HEIGHT; row++){  
-      // calculate brightness of each segment based on time and position, using the three wave periods
-      float level = cos((col+wave1_period)) * sin((row+wave2_period));
-     //level += cos(frame/wave2_period) * cos(row/wave2_period)+sin(col/wave2_period);
-      // level += cos(frame/wave3_period) * cos(row/wave3_period);
-      //level /= 2.0;
-      // draw character at position row, col, with brightness level
-      draw_character(map(level*100, -100.0, 100.0, 0, 15), row, col, map(level*100, -100.0, 100.0, 0, 255));            
-    }
-  }
-  // slowly adjust frequencies of the three waves
-  wave1_period = fmod(wave1_period + 0.001, 100000.0);
-  wave2_period = fmod(wave2_period + 0.002, 100000.0);
-  wave3_period = fmod(wave3_period + 0.003, 1.0);
-
-  // increment frame counter
-  counter += fmod((millis()%20000)/10000.0, 1.0);
-}
 
 void show_message(int message_number){
   byte spin[] = {6,9,10,11,8,12,13,14};
@@ -689,6 +747,7 @@ void show_message(int message_number){
 
 int message_number = 0;
 int last_quote = 0;
+
 void loop(){
 
   // update time
@@ -708,34 +767,36 @@ void loop(){
   // design_CLI();
 
   // test_module_order();
-  // while (message_number == last_quote) {
-  //   message_number = random(NUM_QUOTES);
-  // }
-  // String quote = wrap_string(quotes[message_number]);
-  // // capitalize q
-  // quote.toUpperCase();
-  // // clear_buffer();
-  // for (int i=0; i<40; i++){
-  //   draw_string(quote, 0, 0, 80, true);
-  //   draw_buffer();
-  //   delay(5);
-  // }
-  // clear_buffer(); 
-  // draw_string(quote, 0, 0, 80);
-  // draw_buffer();
-  // delay(8000);
-  // last_quote = message_number;
-  // message_number = (message_number + 1) % NUM_QUOTES;
+  while (message_number == last_quote) {
+    message_number = random(NUM_QUOTES);
+  }
+  String quote = wrap_string(quotes[message_number]);
+  // capitalize q
+  quote.toUpperCase();
+  // clear_buffer();
+  for (int i=0; i<80; i++){
+    draw_string(quote, 0, 0, 80, true);
+    draw_buffer();
+    delay(3);
+  }
+  clear_buffer(); 
+  draw_string(quote, 0, 0, 80);
+  draw_buffer();
+  delay(8000);
+  last_quote = message_number;
+  message_number = (message_number + 1) % NUM_QUOTES;
 
-  // set message number to random number, but not the same as last time
+  // // set message number to random number, but not the same as last time
   // int last_msg = message_number;
   // while (message_number == last_msg) {
   //   message_number = random(8);
   // }
-  clear_buffer();
-  //wave_pattern();
-  spirals();
-  draw_buffer();
+  // clear_buffer();
+  // //wave_pattern();
+  // // spirals();
+  // draw_buffer();
+  
+  
 
 //  if (random(2)>=0){
     // switch (random(4)){
