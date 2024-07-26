@@ -3,6 +3,8 @@
 // pins SW1-12 are wired to the common cathode of each digit
 // pins CS1-16 are wired to each segment of each digit
 
+
+
 #include <Arduino.h>
 #include <Wire.h>
 #include <WiFiManager.h>
@@ -135,18 +137,25 @@ uint8_t i2c_write_reg(const uint8_t i2c_addr, const uint8_t reg_addr, const uint
 }
 
 // Total LED driver boards
-#define NUM_BOARDS 8
+#define NUM_BOARDS 16
 // Create a driver for each board with the address, and provide the I2C read and write functions.
 IS31FL3733Driver drivers[NUM_BOARDS] = {
-  IS31FL3733Driver(ADDR::GND, ADDR::SDA, &i2c_read_reg, &i2c_write_reg),
   IS31FL3733Driver(ADDR::GND, ADDR::SCL, &i2c_read_reg, &i2c_write_reg),
-  IS31FL3733Driver(ADDR::GND, ADDR::GND, &i2c_read_reg, &i2c_write_reg), 
+  IS31FL3733Driver(ADDR::GND, ADDR::SDA, &i2c_read_reg, &i2c_write_reg),
   IS31FL3733Driver(ADDR::GND, ADDR::VCC, &i2c_read_reg, &i2c_write_reg),
-  IS31FL3733Driver(ADDR::VCC, ADDR::GND, &i2c_read_reg, &i2c_write_reg),
-  
+  IS31FL3733Driver(ADDR::GND, ADDR::GND, &i2c_read_reg, &i2c_write_reg), 
+  IS31FL3733Driver(ADDR::VCC, ADDR::SCL, &i2c_read_reg, &i2c_write_reg),
   IS31FL3733Driver(ADDR::VCC, ADDR::SDA, &i2c_read_reg, &i2c_write_reg),
   IS31FL3733Driver(ADDR::VCC, ADDR::VCC, &i2c_read_reg, &i2c_write_reg),
-  IS31FL3733Driver(ADDR::VCC, ADDR::SCL, &i2c_read_reg, &i2c_write_reg),
+  IS31FL3733Driver(ADDR::VCC, ADDR::GND, &i2c_read_reg, &i2c_write_reg),
+  IS31FL3733Driver(ADDR::SCL, ADDR::SCL, &i2c_read_reg, &i2c_write_reg),
+  IS31FL3733Driver(ADDR::SCL, ADDR::SDA, &i2c_read_reg, &i2c_write_reg),
+  IS31FL3733Driver(ADDR::SCL, ADDR::VCC, &i2c_read_reg, &i2c_write_reg),
+  IS31FL3733Driver(ADDR::SCL, ADDR::GND, &i2c_read_reg, &i2c_write_reg), 
+  IS31FL3733Driver(ADDR::SDA, ADDR::SCL, &i2c_read_reg, &i2c_write_reg),
+  IS31FL3733Driver(ADDR::SDA, ADDR::SDA, &i2c_read_reg, &i2c_write_reg),
+  IS31FL3733Driver(ADDR::SDA, ADDR::VCC, &i2c_read_reg, &i2c_write_reg),
+  IS31FL3733Driver(ADDR::SDA, ADDR::GND, &i2c_read_reg, &i2c_write_reg),
 };
 // each LED Driver board can drive 16x12 LEDs
 #define WIDTH 16  // cs
@@ -154,34 +163,19 @@ IS31FL3733Driver drivers[NUM_BOARDS] = {
 // each driver handles 12x 14-segment characters in a single row, 
 //   mapping the 16x12 grid (with some unsed LEDS)
 // each module joins 4 driver boards vertically, making a 4x12 character matrix
-#define MODULE_HEIGHT 4
-#define MODULE_WIDTH 12
-// There are two modules, arranged to create a 4x24 character screen
-#define NUM_MODULES 2
+#define MODULE_HEIGHT 3
+#define MODULE_WIDTH 16
+// There are two modules, arranged to create a 3x32 character screen
+#define NUM_MODULES 4
 // Screen size (in characters) 
 // currently using 2 modules, side-by-side
-#define SCREEN_HEIGHT MODULE_HEIGHT
-#define SCREEN_WIDTH MODULE_WIDTH*NUM_MODULES
+#define SCREEN_HEIGHT 6
+#define SCREEN_WIDTH 32
 // that's a total of 12*4*2 = 96 14-segment digits, or over 1400 LEDs!
 
 uint8_t dig_buffer[NUM_BOARDS][WIDTH*HEIGHT+1];  // screen buffer for bulk updates
 
-void draw_segment_pattern(IS31FL3733Driver &driver, uint8_t pos, uint16_t byte_value, uint8_t level=255){
-  // Sets value of a single 14-seg digit in the display.
-  // The position (pos) is from left to right (0..11).
-  // The byte_value is a byte value that defines which segments are turned on.
 
-  // decode byte value into segments
-  int sw = pos;
-
-  for (int i=0; i<WIDTH; i++) {   
-    if (byte_value & (1<<i)) {
-      driver.SetLEDSinglePWM(i, sw, level); // turn on segment      
-    } else {
-      driver.SetLEDSinglePWM(i, sw, 0); // turn off segment
-    }
-  }
-}
 
 bool getNTPtime(int sec) {
   if (WiFi.isConnected()) {
@@ -203,7 +197,7 @@ bool getNTPtime(int sec) {
       
       // show animation
       static int dp_pos = 0;
-      draw_segment_pattern(drivers[0], dp_pos++, 0b10000000, random(3)*100+55);
+      // draw_segment_pattern(drivers[0], dp_pos++, 0b10000000, random(3)*100+55);
       dp_pos %= 12;
 
     } while (!timeout && !date_is_valid);
@@ -265,7 +259,7 @@ void ConnectToWifi(){
 
 // ---------------------------------------------------------------------------------------------
 
-
+int dots[4][4];
 
 struct pixel {
   uint8_t cs; // X
@@ -275,22 +269,7 @@ struct pixel {
 };
 pixel pixels[WIDTH*HEIGHT];
 
-void test_all_segments(int repeats=1, int speed=50){
-  static int n = 0;
-  for (int b=0; b<16; b++){
-    for (int d=0; d<NUM_BOARDS; d++){
-      for (int pos=0; pos<12; pos++){
-        draw_segment_pattern(drivers[d], pos, 1 << b, 255);
-      }
-    }
-    //delay(speed);
-  }
-  for (int d=0; d<NUM_BOARDS; d++){
-    for (int pos=0; pos<12; pos++){
-      draw_segment_pattern(drivers[d], pos, 0, 0);
-    }
-  }
-}
+
 
 // void display_time(){
 //   bool show_dp = (timeinfo.tm_sec % 2 == 0);
@@ -307,13 +286,22 @@ void test_all_segments(int repeats=1, int speed=50){
 void draw_buffer(){
   for (int b=0; b<NUM_BOARDS; b++){
     drivers[b].SetPWM(dig_buffer[b]);
-  } 
+    // std::fill_n(dig_buffer[b], WIDTH*HEIGHT, 0);
+  }
 }
 
-void clear_buffer(){
-  // clear dig_buffer to 0 using std::fill
-  for (int b=0; b<NUM_BOARDS; b++){
-    std::fill_n(dig_buffer[b], WIDTH*HEIGHT, 0);
+void dim_buffer(uint8_t amount){
+  for (int b = 0; b < NUM_BOARDS; b++) {
+    for (int i = 0; i < WIDTH * HEIGHT; i++) {
+      if (dig_buffer[b][i] > 35){
+        dig_buffer[b][i] *= 0.85; // move faster over bright levels
+      }
+      if (amount > dig_buffer[b][i]) {
+        dig_buffer[b][i] = 0;
+      } else {
+        dig_buffer[b][i] -= amount;
+      }
+    }
   }
 }
 
@@ -330,12 +318,43 @@ void metaballs(){
     { 3.0, 2.0, -0.1, 0.1, 1.3 },
     { 7.0, 1.0, 0.1, -0.1, 2.7 }
   };
-  clear_buffer();
   // draw balls in buffer
 
 }
 
 
+
+void draw_segment_pattern(IS31FL3733Driver &driver, uint8_t pos, uint16_t byte_value, uint8_t level=255){
+  // Sets value of a single 14-seg digit in the display.
+  // The position (pos) is from left to right (0..11).
+  // The byte_value is a byte value that defines which segments are turned on.
+
+  // decode byte value into segments
+  int sw = pos;
+
+  for (int i=0; i<WIDTH; i++) {   
+    if (byte_value & (1<<i)) {
+      driver.SetLEDSinglePWM(i, sw, level); // turn on segment      
+    } else {
+      driver.SetLEDSinglePWM(i, sw, 0); // turn off segment
+    }
+  }
+}
+
+void draw_segment_pattern(uint8_t row, uint8_t col, uint16_t byte_value, uint8_t level=255){
+  row = constrain(row, 0, SCREEN_HEIGHT-1);
+  col = constrain(col, 0, SCREEN_WIDTH-1);
+  // first we find which module to write to
+  int board = col/4 + row/3*8; // which of the four boards, laid out 2x2, 4 drivers per board
+  // then calculate the digit position in the module (0..11), each module is 4x3
+  int pos = (col % 4) + (row % 3)*4;
+
+  // draw_segment_pattern(drivers[board], pos, byte_value, level);
+  for (int bit = 0; bit < WIDTH; bit++) {
+    uint8_t value = (byte_value & (1 << (bit))) ? level : 0;
+    dig_buffer[board][pos*WIDTH+bit] = value;
+  }
+}
 
 void random_animation(){
  // startup fadout animation
@@ -351,9 +370,34 @@ void random_animation(){
   }
 }
 
+/*
+Layout:
+- Virtual screen: 32x6
+- 4 modules
+- each module is 16x3, with 4 boards
+- each board shows 12 characters, arranged 4x3
+
+┌Module 0 ───────────────────┐ ┌Module 1 ───────────────────┐
+│┌─────┐┌─────┐┌─────┐┌─────┐│ │┌─────┐┌─────┐┌─────┐┌─────┐│
+││Board││Board││Board││Board││ ││Board││Board││Board││Board││
+││ 4x3 ││ 4x3 ││ 4x3 ││ 4x3 ││ ││ 4x3 ││ 4x3 ││ 4x3 ││ 4x3 ││
+││     ││     ││     ││     ││ ││     ││     ││     ││     ││
+│└─────┘└─────┘└─────┘└─────┘│ │└─────┘└─────┘└─────┘└─────┘│
+└────────────────────────────┘ └────────────────────────────┘
+┌Module 2 ───────────────────┐ ┌Module 3 ───────────────────┐
+│┌─────┐┌─────┐┌─────┐┌─────┐│ │┌─────┐┌─────┐┌─────┐┌─────┐│
+││Board││Board││Board││Board││ ││Board││Board││Board││Board││
+││ 4x3 ││ 4x3 ││ 4x3 ││ 4x3 ││ ││ 4x3 ││ 4x3 ││ 4x3 ││ 4x3 ││
+││     ││     ││     ││     ││ ││     ││     ││     ││     ││
+│└─────┘└─────┘└─────┘└─────┘│ │└─────┘└─────┘└─────┘└─────┘│
+└────────────────────────────┘ └────────────────────────────┘
+
+*/
+
 // draws a single character at position row, col on the display
-// row can be 0-3, col can be 0-23
+// row can be 0-5, col can be 0-31
 // level is the brightness of the character, 0-255
+// each module has 12 characters, arranged in a 4x3 grid
 void draw_character(uint16_t ascii_code, int row, int col, uint8_t level, bool rand=false){
   // get the bit pattern for the character
   uint16_t pattern = alphafonttable[constrain(ascii_code, 0, 126)];
@@ -363,37 +407,27 @@ void draw_character(uint16_t ascii_code, int row, int col, uint8_t level, bool r
   row = constrain(row, 0, SCREEN_HEIGHT-1);
   col = constrain(col, 0, SCREEN_WIDTH-1);
   // first we find which module to write to
-  int board = row;
-  if (col > MODULE_WIDTH-1) {
-    board += MODULE_HEIGHT; // modules 4-7 handle rows 0-3 on the next module
-    col = col % MODULE_WIDTH; // col 13-23 is col 0-11 on the next module
+  int board = col/4 + row/3*8; // which of the four boards, laid out 2x2, 4 drivers per board
+  // then calculate the digit position in the module (0..11), each module is 4x3
+  int pos = (col % 4) + (row % 3)*4;
+  
+  if (board > NUM_BOARDS){
+    Serial.printf("error, board is %d\n", board);
+    return;
   }
+  Serial.printf("char: '%c'\n row: %d col %d\n board: %d pos: %d\n", ascii_code, row, col, board, pos);
+  // int board = row;
+  // if (col > MODULE_WIDTH-1) {
+  //   board += 8; // modules 4-7 handle rows 0-3 on the next module
+  //   col = col % MODULE_WIDTH; // col 16-31 is col 0-15 on the next module
+  // }
   // then fill the buffer with all the segement levels for the character
-  std::array<uint8_t, WIDTH> expanded;
   for (int bit = 0; bit < WIDTH; bit++) {
-    if (!rand || random(10)==1) {
-      expanded[bit] = (pattern & (1 << (bit))) ? level : 0;
-      dig_buffer[board][col*WIDTH+bit] = expanded[bit];
-    }
+    uint8_t value = (pattern & (1 << (bit))) ? level : 0;
+    dig_buffer[board][pos*WIDTH+bit] = value;
   }
-  // use std:fill to write the expanded array to dig_buffer[board]
-  // std::fill_n(dig_buffer[board]+col*HEIGHT, 16, expanded[0]);
-
 }
 
-void draw_segment(int row, int col, int segment, int value=1){
-  // draw a single segment on the display
-  // row can be 0-3, col can be 0-23, segment can be 0-15
-  // value is the brightness of the segment, 0-255
-  row = constrain(row, 0, SCREEN_HEIGHT-1);
-  col = constrain(col, 0, SCREEN_WIDTH-1);
-  int board = row;
-  if (col > MODULE_WIDTH-1) {
-    board += MODULE_HEIGHT;
-    col = col % MODULE_WIDTH;
-  }
-  draw_segment_pattern(drivers[board], col, 1 << segment, value);
-}
 
 // word wrap and pad spaces to make long sentence fit on the display
 // https://chat.openai.com/share/22465504-3300-4ccd-8cb9-29fd031747d7
@@ -464,28 +498,15 @@ void draw_string(String str, int row, int col, int level=100, bool rand=false){
       dig_buffer[row][col*WIDTH+7] = level; 
     }
     col++;
-    if (col > 23) {  // crude wrapping
+    if (col > 31) {  // crude wrapping
       row++;
       col = 0;
     }
-    if (row > 3) { break; }
+    if (row > 5) { break; }
     position++;
   }
 }
 
-void test_module_order(){
-  // test the order of the modules
-  for (int board=0; board<NUM_BOARDS; board++){
-    int row = board % SCREEN_HEIGHT;
-    int col = board < MODULE_HEIGHT ? 0 : 12;
-    
-    String s = String("MOD. ");
-    s += String(board); s += " "; 
-    s += "ROW "; s += String(row);
-    
-    draw_string(s, row, col, 255);
-  }
-}
 
 void random_characters(int level=100){
   uint16_t letter = random(32, 127);
@@ -502,14 +523,25 @@ void random_characters(int level=100){
   static int dir2 = 1;
   r += dir;
   c += dir2;
-  if (r > 7) { r = 7; dir = -1; }
+  if (r > SCREEN_HEIGHT) { r = SCREEN_HEIGHT-1; dir = -1; }
   if (r < 0) { r = 0; dir = 1; }
-  if (c > 11) { c = 11; dir2 = -1; }
+  if (c > SCREEN_WIDTH) { c = SCREEN_WIDTH-1; dir2 = -1; }
   if (c < 0) { c = 0; dir2 = 1; }
-  if (random(5)==0) { r = random(4); c = random(12); } 
-  draw_segment_pattern(drivers[r], c, pattern, level);
+  if (random(2)==0) { r = random(SCREEN_HEIGHT); c = random(SCREEN_WIDTH); } 
+  draw_segment_pattern(r, c, pattern, level);
 }
 
+void test_all_segments(int repeats=1, int speed=50){
+  static int n = 0;
+  for (int b=0; b<4; b++){
+    for (int d=0; d<NUM_BOARDS; d++){
+      //int d = 2;
+      for (int pos=0; pos<4; pos++){
+        draw_segment_pattern(drivers[d], pos, 1 << b, random(255));
+      }
+    }
+  }
+}
 
 
 static float counter=1; // tracks time for animation
@@ -523,8 +555,8 @@ void spirals(){
   // loop through rows and cols (SCREEN_WIDTH x SCREEN_HEIGHT) and
   // call draw_character for each element
   
-  for (float col=0; col<SCREEN_WIDTH; col++){
-    for (float row=0; row<SCREEN_HEIGHT; row++){  
+  for (int col=0; col<SCREEN_WIDTH; col++){
+    for (int row=0; row<SCREEN_HEIGHT; row++){  
       // calculate brightness of each segment based on time and position, using the three wave periods
       float level = cos((col+counter)/(counter*5)+wave1_period) * sin((row+counter)/20.0+wave2_period);
      //level += cos(frame/wave2_period) * cos(row/wave2_period)+sin(col/wave2_period);
@@ -542,25 +574,32 @@ void spirals(){
   // increment frame counter
   counter += sin((millis()%120000)/1000.0)/500.0;
   counter = fmod(counter, 2*PI/10);
-  frame++;
 }
 
 #define TIMER_PERIOD 5
 static int last_frames = 0;
 void timerStatusMessage(){
   Serial.println("-----");
-  Serial.printf("counter: %f\n", counter);
-  Serial.printf("wave1_period: %f\n", wave1_period);
-  Serial.printf("wave2_period: %f\n", wave2_period);
-  Serial.printf("wave3_period: %f\n", wave3_period);
+  // Serial.printf("counter: %f\n", counter);
+  // Serial.printf("wave1_period: %f\n", wave1_period);
+  // Serial.printf("wave2_period: %f\n", wave2_period);
+  // Serial.printf("wave3_period: %f\n", wave3_period);
   Serial.printf("frame: %d\n", frame);
   float fps = (frame - last_frames) / TIMER_PERIOD;
   Serial.printf("fps: %f\n", fps);
   last_frames = frame;
 
 }
+#define RANDOM_RANGE 2000
+void randomize_dots(){
+  for (int i=0; i<4; i++){
+    for (int j=0; j<4; j++){
+      dots[i][j] = random(RANDOM_RANGE)+1;
+    }
+  }
+}
 
-
+int current_board = 2;
 void setup()
 {
   // // init pixel stucts
@@ -588,12 +627,13 @@ void setup()
 
   Serial.println("Initializing LED Drivers");
   for (int d=0; d<NUM_BOARDS; d++) {
+    //if (d != 2) continue; // only initialize the 3rd board
     Serial.print("\nIS31FL3733B driver init at address 0x");
     Serial.println(drivers[d].GetI2CAddress(), HEX);  
     drivers[d].Init();
 
     Serial.println(" -> Setting global current control");
-    drivers[d].SetGCC(150);
+    drivers[d].SetGCC(100);
 
     Serial.println(" -> Setting PWM state for all LEDs to half power");
     drivers[d].SetLEDMatrixPWM(140);
@@ -603,7 +643,9 @@ void setup()
     drivers[d].SetLEDMatrixPWM(50); // set brightness
   }
 
-  timer.attach(TIMER_PERIOD, timerStatusMessage);
+  //timer.attach(TIMER_PERIOD, timerStatusMessage);
+
+  randomize_dots();
 
   delay(100);
 
@@ -613,6 +655,7 @@ void setup()
   // Serial.println("Connecting to WIFI...");
   // ConnectToWifi(); 
   // drivers[0].SetLEDMatrixState(LED_STATE::ON);
+
 }
 
 void scroll_all_characters(){
@@ -629,7 +672,6 @@ void scroll_all_characters(){
   if (ch > 127-12) { ch = 32; }
   
 }
-
 
 void design_CLI(){
 
@@ -690,7 +732,7 @@ const String msgs[] = {
 // }
 
 
-void show_message(int message_number){
+void show_message(int message_number){ 
   byte spin[] = {6,9,10,11,8,12,13,14};
   
   int row = 0;
@@ -703,43 +745,44 @@ void show_message(int message_number){
   msg = msg.substring(0, 47);
   Serial.println(msg);
   Serial.println(msg.length());
+  
   for (int pos=0; pos<msg.length(); pos++){
-    if (row > 3) { break; } 
+    if (row >= SCREEN_HEIGHT) { break; } 
     if (char(msg[pos]) == '.') { col++; continue; }
     // animate before drawing character
     for (byte b=0; b<8; b++){
-      draw_segment_pattern(drivers[row], col, 1 << spin[b], 220);
-      delay(5+random(3));
+      draw_segment_pattern(row, col, 1 << spin[b], 220);
+      draw_buffer();
+      delay(1+random(3));
     }
     // draw character
     uint16_t pattern = alphafonttable[msg[pos]];
-    if (pos > 0 && pos<msg.length()-1 && msg[pos+1]=='.'){
+    if (pos > 0 && pos < msg.length()-1 && msg[pos+1]=='.'){
       pattern |= 1 << 7;
     }
-    draw_segment_pattern(drivers[row], col, pattern, 100);
+    draw_segment_pattern(row, col, pattern, 100);
+    draw_buffer();
 
     col++;
-    if (col > 11) {
-      if (row<3){
-        col = 0;
-        row++;
-      }
+    if (col >= SCREEN_WIDTH) {
+      col = 0;
+      row++;
     }
   }
-  row = row % 4;
   // cursor
   for (int i=0; i<5; i++){
-    draw_segment_pattern(drivers[row], col, 1 << 3, 200);
+    draw_segment_pattern(row, col, 1 << 3, 200);
+    draw_buffer();
     delay(500);
-    draw_segment_pattern(drivers[row], col, 0, 128);
+    draw_segment_pattern(row, col, 0, 128);
+    draw_buffer();
     delay(500);      
   }
   // erase
-  for (int i=47; i>=0; i--){
-    draw_segment_pattern(drivers[i/12], i%12, 1 << 3, 200);
-    if (i<47) { 
-      draw_segment_pattern(drivers[(i+1)/12], (i+1)%12, 0, 128);
-    }
+  for (int i=SCREEN_WIDTH*SCREEN_HEIGHT; i>=0; i--){
+    draw_segment_pattern(i/SCREEN_WIDTH, i%SCREEN_WIDTH, 1 << 3, 200);
+    draw_segment_pattern((i+1)/SCREEN_WIDTH, (i+1)%SCREEN_WIDTH, 0, 128);
+    draw_buffer();
     delay(30+(random(5)==0 ? random(4)*30 : 0));
   }
 
@@ -747,6 +790,20 @@ void show_message(int message_number){
 
 int message_number = 0;
 int last_quote = 0;
+
+void test_module_order(){
+  Serial.println("testing module order");
+  for (int board=0; board<NUM_BOARDS; board++){
+    Serial.printf(" board %d\n", board);
+    for (int sw=0; sw<12; sw++){
+      for (int cs=0; cs<16; cs++){
+        drivers[board].SetLEDSinglePWM(cs, sw, 255); // turn on segment      
+        delay(50);
+      }
+    }
+    delay(1000);
+  }
+}
 
 void loop(){
 
@@ -756,47 +813,69 @@ void loop(){
   // // static int level = 190;
   // Serial.println(getFormattedTime());
   // test_all_segments();
-  // wave_pattern();
   // scroll_all_characters();
-  // show_message(message_number);
-  // random_animation();
-  //random_characters(random(5,128));
+  //random_animation();
+  
   //delayMicroseconds(random(2, 100));
   // Serial.println("?"); 
 
   // design_CLI();
 
-  // test_module_order();
-  while (message_number == last_quote) {
-    message_number = random(NUM_QUOTES);
-  }
-  String quote = wrap_string(quotes[message_number]);
-  // capitalize q
-  quote.toUpperCase();
-  // clear_buffer();
-  for (int i=0; i<80; i++){
-    draw_string(quote, 0, 0, 80, true);
-    draw_buffer();
-    delay(3);
-  }
-  clear_buffer(); 
-  draw_string(quote, 0, 0, 80);
-  draw_buffer();
-  delay(8000);
-  last_quote = message_number;
-  message_number = (message_number + 1) % NUM_QUOTES;
 
-  // // set message number to random number, but not the same as last time
+  // clear_buffer();
+  // draw_buffer();
+  // test_module_order();
+
+  // while (message_number == last_quote) {
+  //   message_number = random(NUM_QUOTES);
+  // }
+  // String quote = wrap_string(quotes[message_number]);
+  // // capitalize q
+  // quote.toUpperCase();
+  // // clear_buffer();
+  // for (int i=0; i<80; i++){
+  //   draw_string(quote, 0, 0, 80, true);
+  //   draw_buffer();
+  //   delay(3);
+  // }
+  // clear_buffer(); 
+  // draw_string(quote, 0, 0, 80);
+  // draw_buffer();
+  // delay(8000);
+  // last_quote = message_number;
+  // message_number = (message_number + 1) % NUM_QUOTES;
+
+
+  // set message number to random number, but not the same as last time
+  // clear_buffer();
+  // show_message(message_number);
   // int last_msg = message_number;
   // while (message_number == last_msg) {
   //   message_number = random(8);
   // }
+
   // clear_buffer();
-  // //wave_pattern();
-  // // spirals();
+  dim_buffer(2);
+  for (int i=0; i<16; i++){
+    if (random(4) > 2) continue;
+    random_characters(random(190,250));
+  }
+  draw_buffer();
+
+  // animated pattern
+  
+  // //spirals();
+  // clear_buffer();
+  // draw_string("MOD1", 0, 0);
+  // draw_string("MOD2", 4, 1);
   // draw_buffer();
+  // delay(5000);
   
-  
+  // test_all_segments(1, 3);
+
+  // if (random(100)==0){
+  //   dots[random(4)][random(4)] = random(RANDOM_RANGE)+150;
+  // }
 
 //  if (random(2)>=0){
     // switch (random(4)){
@@ -819,4 +898,5 @@ void loop(){
     //     break;
     // }
 //  }
+  frame++;
 }
