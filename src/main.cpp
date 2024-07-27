@@ -8,9 +8,11 @@
 #include <Arduino.h>
 #include <Wire.h>
 #include <WiFiManager.h>
+#include <sstream> // used for parsing and building strings
 #include "is31fl3733.hpp"
 #include "FourteenSegmentAlpha.h"
 #include "Ticker.h"
+#include "words.h"
 
 using namespace IS31FL3733;
 
@@ -177,6 +179,7 @@ uint8_t dig_buffer[NUM_BOARDS][WIDTH*HEIGHT+1];  // screen buffer for bulk updat
 
 
 
+
 bool getNTPtime(int sec) {
   if (WiFi.isConnected()) {
     bool timeout = false;
@@ -269,8 +272,6 @@ struct pixel {
 };
 pixel pixels[WIDTH*HEIGHT];
 
-
-
 // void display_time(){
 //   bool show_dp = (timeinfo.tm_sec % 2 == 0);
 //   show_number(0, 0, timeinfo.tm_hour / 10, false, 240);
@@ -286,7 +287,12 @@ pixel pixels[WIDTH*HEIGHT];
 void draw_buffer(){
   for (int b=0; b<NUM_BOARDS; b++){
     drivers[b].SetPWM(dig_buffer[b]);
-    // std::fill_n(dig_buffer[b], WIDTH*HEIGHT, 0);
+  }
+}
+
+void clear_buffer(){
+  for (int b=0; b<NUM_BOARDS; b++){
+    std::fill_n(dig_buffer[b], WIDTH*HEIGHT, 0);
   }
 }
 
@@ -398,10 +404,10 @@ Layout:
 // row can be 0-5, col can be 0-31
 // level is the brightness of the character, 0-255
 // each module has 12 characters, arranged in a 4x3 grid
-void draw_character(uint16_t ascii_code, int row, int col, uint8_t level, bool rand=false){
+void draw_character(uint16_t ascii_code, int row, int col, uint8_t level, bool show_dot=false){
   // get the bit pattern for the character
   uint16_t pattern = alphafonttable[constrain(ascii_code, 0, 126)];
-  if (ascii_code==33 || ascii_code==46 || ascii_code==63){   // draw period, decimal, and question with a dot
+  if (show_dot || ascii_code==33 || ascii_code==46 || ascii_code==63){   // draw period, decimal, and question with a dot
     pattern |= 1 << 7;
   }
   row = constrain(row, 0, SCREEN_HEIGHT-1);
@@ -415,12 +421,8 @@ void draw_character(uint16_t ascii_code, int row, int col, uint8_t level, bool r
     Serial.printf("error, board is %d\n", board);
     return;
   }
-  Serial.printf("char: '%c'\n row: %d col %d\n board: %d pos: %d\n", ascii_code, row, col, board, pos);
-  // int board = row;
-  // if (col > MODULE_WIDTH-1) {
-  //   board += 8; // modules 4-7 handle rows 0-3 on the next module
-  //   col = col % MODULE_WIDTH; // col 16-31 is col 0-15 on the next module
-  // }
+  // Serial.printf("char: '%c'\n row: %d col %d\n board: %d pos: %d\n", ascii_code, row, col, board, pos);
+
   // then fill the buffer with all the segement levels for the character
   for (int bit = 0; bit < WIDTH; bit++) {
     uint8_t value = (pattern & (1 << (bit))) ? level : 0;
@@ -486,27 +488,193 @@ String wrap_string(const String& source_string) {
     return result;
 }
 
-void draw_string(String str, int row, int col, int level=100, bool rand=false){
+void draw_string(String str, int row, int col, int level=100){
   // draw a string on the display
   if (!rand) Serial.printf("draw_string('%s', %d, %d, %d)\n", str.c_str(), row, col, level);
   int position = 0;
   for (char c : str){
-    if (str[position] == '.') c=' ';
-    draw_character(c, row, col, level, rand);
-    if (position < str.length() - 1 && str[position + 1] == '.') {
-      // set bit 7 of the dig_buffer to turn on the decimal point
-      dig_buffer[row][col*WIDTH+7] = level; 
+    bool show_dot = (str[position+1] == '.');
+    if (c == '.'){
+      position++;
+      continue;
     }
+
+    draw_character(c, row, col, level, show_dot);
+
     col++;
-    if (col > 31) {  // crude wrapping
+    if (col == SCREEN_WIDTH) {  // crude wrapping
       row++;
       col = 0;
     }
-    if (row > 5) { break; }
+    if (row == SCREEN_HEIGHT) { break; }
+
     position++;
   }
 }
 
+
+// Function to join words with spaces and ensure the sentence is exactly 32 characters
+std::string joinWordsWithPadding(const std::vector<std::string>& words) {
+    std::string sentence = "";
+    for (const auto& word : words) {
+        sentence += word + " ";
+    }
+    sentence.pop_back(); // Remove the trailing space
+    // Pad with spaces to ensure the sentence is exactly 32 characters
+    // while (sentence.length() < 32) {
+    //     sentence += " ";
+    // }
+    sentence += ". ";
+    return sentence;
+}
+
+void generate_sentences(){
+   // Define patterns for sentence generation
+    std::vector<std::string> patterns = {
+        "properNoun adverb verb adjective noun",
+        "adjective verb noun verbPhrase pronoun adjective",
+        "properNoun verb adverb noun",
+        "adjective noun verb adverb",
+        "properNoun verbPhrase noun",
+        "noun pronoun noun verb pronoun"
+    };
+
+    std::vector<std::string> chosenWords;
+    std::string sentence = "";
+
+    int iterations=0;
+    do {
+        iterations++;
+        Serial.printf("iteration %d\n", iterations);
+
+        // Clear previous words
+        chosenWords.clear();
+
+        // Select a random pattern
+        std::string pattern = patterns[random(0, patterns.size() - 1)];
+
+        // Split the pattern and replace placeholders with words from corresponding vectors
+        std::vector<std::string> words;
+        std::string patternCopy = pattern;
+        std::string delimiter = " ";
+        size_t pos = 0;
+        std::string token;
+        while ((pos = patternCopy.find(delimiter)) != std::string::npos) {
+          Serial.printf(" pattern: '%s'\n", patternCopy.c_str());
+          token = patternCopy.substr(0, pos);
+          words.push_back(token);
+          patternCopy.erase(0, pos + delimiter.length());
+        }
+        words.push_back(patternCopy);
+
+        for (const auto& word_type : words) {
+          Serial.printf(" generating pattern for '%s'\n", word_type.c_str());
+          if (word_type == "properNoun") {
+              chosenWords.push_back(properNouns[random(0, properNouns.size() - 1)]);
+          } else if (word_type == "adverb") {
+              chosenWords.push_back(adverbs[random(0, adverbs.size() - 1)]);
+          } else if (word_type == "verb") {
+              chosenWords.push_back(verbs[random(0, verbs.size() - 1)]);
+          } else if (word_type == "adjective") {
+              chosenWords.push_back(adjectives[random(0, adjectives.size() - 1)]);
+          } else if (word_type == "noun") {
+              chosenWords.push_back(nouns[random(0, nouns.size() - 1)]);
+          } else if (word_type == "verbPhrase") {
+              chosenWords.push_back(verbPhrases[random(0, verbPhrases.size() - 1)]);
+          } else if (word_type == "pronoun") {
+              chosenWords.push_back(pronouns[random(0, pronouns.size() - 1)]);
+          }
+        }
+        // Join words to form a sentence
+        sentence += joinWordsWithPadding(chosenWords);
+        Serial.printf("Sentence is now: '%s'\n", sentence.c_str());
+    } while (sentence.length() < SCREEN_WIDTH*SCREEN_HEIGHT);
+    // Capitalize the sentence
+    std::transform(sentence.begin(), sentence.end(), sentence.begin(), ::toupper);
+    draw_string(String(sentence.c_str()), 0, 0);
+}
+
+
+
+struct Drip{
+  uint8_t row=0;
+  uint8_t col=0;
+  uint8_t tick=0;
+  uint8_t speed=1;
+  uint8_t sleep=0;
+  bool active=false;
+  uint16_t symbol='.';
+};
+#define MAX_DRIPS 30
+Drip drips[MAX_DRIPS];
+uint8_t lanes[SCREEN_WIDTH]; // keep track of columns that are already in use so we don't run over too many characters
+
+void matrix(){
+  static long tick=0;
+    // init Particles
+  for (int i=0; i<MAX_DRIPS; i++){
+    if (tick==0){
+      drips[i] = Drip(); // init on first run
+      for (int j=0; j<SCREEN_WIDTH; j++){
+        lanes[j] = 0;
+      }
+    }
+    Drip *drip = &drips[i];
+    if (!drip->active){
+      if (drip->sleep > 0){
+        // keep sleeping
+        drip->sleep--;
+      } else {
+        // wake up
+        drip->active=true;
+        drip->sleep = random(5,20);
+        drip->speed = random(2,8);  // lower is faster
+        drip->sleep = random(5,20);  // how long to pause after
+        uint16_t pattern = 0;
+        int bits = random(3,8);
+        for (int r=0; r<bits; r++){
+          pattern |= (1 << random(16));
+        }
+        drip->symbol = pattern;
+        drip->row = 0;
+        // select a new column to start, avoiding used ones
+        drip->col = random(SCREEN_WIDTH);
+        if (lanes[drip->col]==0){
+          // ok to use
+          lanes[drip->col]=1;
+        } else {
+          // search for a new col
+          for (int j=0; j<SCREEN_WIDTH; j++){
+            if (j==i) continue;
+            if (lanes[j]==0){
+              lanes[j]=1;
+              drip->col = j;
+              break;
+            }
+          }
+        }
+      }
+    }
+    drip->tick++;
+    if (drip->active){
+      if (drip->row > SCREEN_HEIGHT){
+        drip->active = false;
+        lanes[drip->col] = 0;
+        drip->tick = 0;
+        drip->speed = random(30,100); // delay after leaving the screen
+      } else {
+        if (drip->tick > drip->speed){
+          drip->tick=0;
+          //draw_character(drip->symbol, drip->row, drip->col, 220);
+          draw_segment_pattern(drip->row, drip->col, drip->symbol, random(150,230));
+          drip->row++;
+        }
+      }
+    }          
+  }
+    // Serial.printf("drip %d %s %d\n",i,drip->active?"active":"",drip->row);
+  tick++;
+}
 
 void random_characters(int level=100){
   uint16_t letter = random(32, 127);
@@ -645,7 +813,7 @@ void setup()
 
   //timer.attach(TIMER_PERIOD, timerStatusMessage);
 
-  randomize_dots();
+ // randomize_dots();
 
   delay(100);
 
@@ -854,13 +1022,24 @@ void loop(){
   //   message_number = random(8);
   // }
 
-  // clear_buffer();
-  dim_buffer(2);
-  for (int i=0; i<16; i++){
-    if (random(4) > 2) continue;
-    random_characters(random(190,250));
-  }
+  // random characters appear and fade out
+  // dim_buffer(4);
+  // for (int i=0; i<16; i++){
+  //   if (random(4) > 2) continue;
+  //   random_characters(random(190,250));
+  // }
+  // draw_buffer();
+
+  // matrix animation
+  // dim_buffer(3);
+  // matrix();
+  // draw_buffer();
+
+  clear_buffer();
+  generate_sentences();
   draw_buffer();
+  delay(10000);
+
 
   // animated pattern
   
