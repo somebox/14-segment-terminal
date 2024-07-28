@@ -4,16 +4,15 @@ This is test firmware for controlling a shitload of 14-segment LED modules:
 
 ![Alt text](docs/32x6-full-module.jpeg)
 
-Adafruit offers [a board that drives four digits](https://www.adafruit.com/product/1911), based on the HT16K33 LED driver chip, which is now discontinued. 
+Adafruit offers [a board that drives four digits](https://www.adafruit.com/product/1911), based on the HT16K33 LED driver chip, which is quite old and now discontinued. It also doesn't support a lot of addresses with I2C.
 
-I wanted to drive a LOT more digits, and ended up using the IS31FL3737 LED driver around a custom PCB. I am using an ESP32 to develop this ongoing project with the eventual goal to build a massive 80x24 terminal using these LED modules (around 1 meter wide). 
+I wanted to drive a LOT more digits, and ended up using the more modern IS31FL3737 LED driver around a custom PCB. It supports individual segment dimming and many more I2C ddresses. 
 
-Using I2C, there can be 16 boards. This allows for 
-example a 48x4 line display sign.
+I am using an ESP32 to develop this ongoing project with the eventual goal to build a massive 80x24 terminal using these LED modules (around 1 meter wide). 
 
-There's no clear standard for how 16-segment digits
-are wired. The LED driver supports 16 common cathode lines.
-The 5321AS 0.54" 2-digit module is what this project is based around, which are usually available on AliExpress for around $0.40 each.
+There's no clear standard for how 14-segment digits
+are wired. The LED driver supports 16 common cathode lines and 12 sinks.
+This project is based around the 5321AS 0.54" 2-digit 14-seg module, which is usually available on AliExpress for less than $0.40 per component. It has 18 pins in total with decimal places.
 
 ![Alt text](docs/display-parts.jpg)
 
@@ -21,7 +20,7 @@ In this application, the module pinouts are shown in the following sequence:
 
 ![Alt text](docs/segment-mapping.jpeg)
 
-The PCB supports up to 16 I2C addresses, set with solder jumpers. So with a single I2C connection you can control 16x12 digits, or 192 characters. And they could be tiled by using multiple controllers or some kind of I2C multiplexing. 
+The PCB supports different I2C addresses, set with solder jumpers. So with a single I2C connection you can control 16x12 digits, or 192 characters. And they could be tiled by using multiple controllers or some kind of I2C multiplexing. 
 
 ## Build Updates
 
