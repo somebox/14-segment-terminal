@@ -13,6 +13,7 @@
 #include "FourteenSegmentAlpha.h"
 #include "Ticker.h"
 #include "words.h"
+#include "content.h"
 
 using namespace IS31FL3733;
 
@@ -25,23 +26,8 @@ const uint8_t INTB_PIN = 3;
 uint8_t i2c_read_reg(const uint8_t i2c_addr, const uint8_t reg_addr, uint8_t *buffer, const uint8_t length);
 uint8_t i2c_write_reg(const uint8_t i2c_addr, const uint8_t reg_addr, const uint8_t *buffer, const uint8_t count);
 
-#define NUM_QUOTES 14
-const String quotes[NUM_QUOTES] = {
-  "Tell me and I forget. Teach me and I remember. Involve me and I learn.",
-  "The only way to do great work is to love what you do. If you haven't found it yet, keep looking.",
-  "Life is what happens when you're busy making other plans.",
-  "Be the change that you wish to see in the world.",
-  "In three words I can sum up everything I've learned about life - it goes on.",
-  "If you tell the truth, you don't have to remember anything.",
-  "Always forgive your enemies, nothing annoys them so much.",
-  "Without music, life would be a mistake.",
-  "To live is the rarest thing in the world. Most people exist, that is all.",
-  "It is better to be hated for what you are than to be loved for what you are not.",
-  "Life is like riding a bicycle. To keep your balance, you must keep moving.",
-  "If you can't explain it to a six year old, you don't understand it yourself.",
-  "Insanity is doing the same thing over and over, but expecting different results.",
-  "I have not failed. I've just found 10,000 ways that won't work.",
-};
+#define USER_BUTTON 0
+
 // Timezone config
 /* 
   Enter your time zone (https://remotemonitoringsystems.ca/time-zone-abbreviations.php)
@@ -512,6 +498,33 @@ void draw_string(String str, int row, int col, int level=100){
   }
 }
 
+enum ButtonPressStatus {
+  NOT_PRESSED,
+  SHORT_PRESS,
+  LONG_PRESS
+};
+ButtonPressStatus button_pressed() {
+  // handle button press for clock_mode change
+  if (digitalRead(USER_BUTTON) == LOW) {
+    Serial.print("Button pressed ... ");
+
+    unsigned long startTime = millis();
+    while (digitalRead(USER_BUTTON) == LOW) {
+      dim_buffer(5);
+      draw_buffer();
+    }
+    unsigned long endTime = millis();
+    unsigned long hold_time = endTime - startTime;
+    Serial.printf("released. (%0.1f sec)\n", hold_time/1000.0);
+    if (hold_time > 1000) {
+      return LONG_PRESS;
+    } else {
+      return SHORT_PRESS;
+    }
+  } else {
+    return NOT_PRESSED;
+  } 
+}
 
 // Function to join words with spaces and ensure the sentence is exactly 32 characters
 std::string joinWordsWithPadding(const std::vector<std::string>& words) {
@@ -545,7 +558,7 @@ void generate_sentences(){
     int iterations=0;
     do {
         iterations++;
-        Serial.printf("iteration %d\n", iterations);
+        //Serial.printf("iteration %d\n", iterations);
 
         // Clear previous words
         chosenWords.clear();
@@ -560,7 +573,7 @@ void generate_sentences(){
         size_t pos = 0;
         std::string token;
         while ((pos = patternCopy.find(delimiter)) != std::string::npos) {
-          Serial.printf(" pattern: '%s'\n", patternCopy.c_str());
+          //Serial.printf(" pattern: '%s'\n", patternCopy.c_str());
           token = patternCopy.substr(0, pos);
           words.push_back(token);
           patternCopy.erase(0, pos + delimiter.length());
@@ -568,7 +581,7 @@ void generate_sentences(){
         words.push_back(patternCopy);
 
         for (const auto& word_type : words) {
-          Serial.printf(" generating pattern for '%s'\n", word_type.c_str());
+          //Serial.printf(" generating pattern for '%s'\n", word_type.c_str());
           if (word_type == "properNoun") {
               chosenWords.push_back(properNouns[random(0, properNouns.size() - 1)]);
           } else if (word_type == "adverb") {
@@ -587,13 +600,12 @@ void generate_sentences(){
         }
         // Join words to form a sentence
         sentence += joinWordsWithPadding(chosenWords);
-        Serial.printf("Sentence is now: '%s'\n", sentence.c_str());
     } while (sentence.length() < SCREEN_WIDTH*SCREEN_HEIGHT);
     // Capitalize the sentence
     std::transform(sentence.begin(), sentence.end(), sentence.begin(), ::toupper);
     draw_string(String(sentence.c_str()), 0, 0);
+    Serial.printf("generated sentence: '%s'\n", sentence.c_str());
 }
-
 
 
 struct Drip{
@@ -626,16 +638,8 @@ void matrix(){
         drip->sleep--;
       } else {
         // wake up
-        drip->active=true;
-        drip->sleep = random(5,20);
+        drip->active = true;
         drip->speed = random(2,8);  // lower is faster
-        drip->sleep = random(5,20);  // how long to pause after
-        uint16_t pattern = 0;
-        int bits = random(3,8);
-        for (int r=0; r<bits; r++){
-          pattern |= (1 << random(16));
-        }
-        drip->symbol = pattern;
         drip->row = 0;
         // select a new column to start, avoiding used ones
         drip->col = random(SCREEN_WIDTH);
@@ -658,57 +662,85 @@ void matrix(){
     drip->tick++;
     if (drip->active){
       if (drip->row > SCREEN_HEIGHT){
+        // deactivate drip
         drip->active = false;
-        lanes[drip->col] = 0;
+        drip->sleep = random(5,20);  // how long to pause after
+        lanes[drip->col] = 0; // free it up to be used again
         drip->tick = 0;
         drip->speed = random(30,100); // delay after leaving the screen
       } else {
+        // render drip
         if (drip->tick > drip->speed){
           drip->tick=0;
-          //draw_character(drip->symbol, drip->row, drip->col, 220);
+
+          if (random(4)==0){
+            // generate a random character            
+            uint16_t pattern = 0;
+            int bits = random(2,5);
+            for (int r=0; r<bits; r++){
+              pattern |= (1 << random(16));
+            }
+            drip->symbol = pattern;
+          }
+
           draw_segment_pattern(drip->row, drip->col, drip->symbol, random(150,230));
           drip->row++;
         }
       }
     }          
+    // Serial.printf("drip %d %s %d\n",i,drip->active?"active":"sleep",drip->tick);
   }
-    // Serial.printf("drip %d %s %d\n",i,drip->active?"active":"",drip->row);
+  
   tick++;
 }
 
-void random_characters(int level=100){
-  uint16_t letter = random(32, 127);
-
-  // draw character
-  uint16_t pattern = alphafonttable[letter];
-  if (letter==33 || letter==46 || letter==63){   // draw pariod, deicmal, and question with a dot
-    pattern |= 1 << 7;
+void random_characters(int num, int level=100) {
+  for (int i=0; i<num; i++) {
+    uint16_t letter = random(32, 127);
+    // draw character
+    uint16_t pattern = alphafonttable[letter];
+    if (letter==33 || letter==46 || letter==63){   // draw pariod, deicmal, and question with a dot
+      pattern |= 1 << 7;
+    }
+    // create random movement across grid using row and col
+    static int r = 0;
+    static int c = 0;
+    static int dir = 1;
+    static int dir2 = 1;
+    r += dir;
+    c += dir2;
+    if (r > SCREEN_HEIGHT) { r = SCREEN_HEIGHT-1; dir = -1; }
+    if (r < 0) { r = 0; dir = 1; }
+    if (c > SCREEN_WIDTH) { c = SCREEN_WIDTH-1; dir2 = -1; }
+    if (c < 0) { c = 0; dir2 = 1; }
+    if (random(2)==0) { r = random(SCREEN_HEIGHT); c = random(SCREEN_WIDTH); } 
+    draw_segment_pattern(r, c, pattern, level);
   }
-  // create random movement across grid using row and col
-  static int r = 0;
-  static int c = 0;
-  static int dir = 1;
-  static int dir2 = 1;
-  r += dir;
-  c += dir2;
-  if (r > SCREEN_HEIGHT) { r = SCREEN_HEIGHT-1; dir = -1; }
-  if (r < 0) { r = 0; dir = 1; }
-  if (c > SCREEN_WIDTH) { c = SCREEN_WIDTH-1; dir2 = -1; }
-  if (c < 0) { c = 0; dir2 = 1; }
-  if (random(2)==0) { r = random(SCREEN_HEIGHT); c = random(SCREEN_WIDTH); } 
-  draw_segment_pattern(r, c, pattern, level);
 }
 
-void test_all_segments(int repeats=1, int speed=50){
-  static int n = 0;
-  for (int b=0; b<4; b++){
-    for (int d=0; d<NUM_BOARDS; d++){
-      //int d = 2;
-      for (int pos=0; pos<4; pos++){
-        draw_segment_pattern(drivers[d], pos, 1 << b, random(255));
+bool test_all_segments(uint8_t level=30, long speed=3){
+  static int test_mode = 0;
+  static uint16_t segment = 0;
+  for (int board=0; board<NUM_BOARDS; board++){
+    for (int pos=0; pos<12; pos++){
+      uint16_t pattern=0;
+      for (uint16_t b=0; b<16; b++){
+        if (test_mode==1 && b != segment) continue;
+        pattern |= 1 << b;
+        draw_segment_pattern(drivers[board], pos, pattern, level);
+        if (test_mode == 0) delay(speed);
+        ButtonPressStatus result = button_pressed();
+        if (result == LONG_PRESS){
+          return false;
+        } else if (result == SHORT_PRESS){
+          test_mode = (test_mode+1)%2;
+        }
+        
       }
     }
   }
+  segment = (segment+1)%16;
+  return true;
 }
 
 
@@ -766,6 +798,7 @@ void randomize_dots(){
     }
   }
 }
+
 
 int current_board = 2;
 void setup()
@@ -874,16 +907,53 @@ void design_CLI(){
   }  
 }
 
-const String msgs[] = {
-    "Hello Dr Falken.        shall we play a game?",
-    "All systems are normal, mostly I would say.",
-    "I'm sorry but you won't be eating much today.",
-    "This is a time of great experimentation. Sorry.",
-    "Nature's mysteries can  shape our destiny.",
-    "Invention drives change irreversibly so i say.",
-    "Progress depends on     questions. Ask away!",
-    "Science reveals truths, if you look closely.",
-  };
+#include <string>
+
+std::string inputBuffer;
+
+void readSerialInput() {
+  while (Serial.available() > 0) {
+    char incomingByte = Serial.read();
+
+    if (incomingByte == '\r' || incomingByte == '\n') {
+      // End of command
+      Serial.println(); // Move to the next line
+      inputBuffer = ""; // reset
+    } else if (incomingByte == '\b' || incomingByte == 127) {
+      // Handle backspace or delete
+      if (!inputBuffer.empty()) {
+        inputBuffer.pop_back();        
+        Serial.print("\b \b"); // Move cursor back, print space, move cursor back again
+      }
+    } else {
+      // Store the character in the buffer
+      if (inputBuffer.length() < SCREEN_WIDTH*SCREEN_HEIGHT) {
+        inputBuffer += incomingByte;
+        Serial.print(incomingByte); // Echo the character back to the terminal
+      }
+    }
+  }
+}
+
+void text_cli(){
+  readSerialInput();
+  clear_buffer();
+  if (inputBuffer.empty()){
+    draw_string(" // TERMINAL - begin typing...", 0, 0, 30);
+  } else {
+    draw_string(inputBuffer.c_str(), 0, 0, 100);
+  }
+  // draw cursor
+  int cursor_level = 100+sin(millis()/150.0)*100;
+  int len = inputBuffer.size() - std::count(inputBuffer.begin(), inputBuffer.end(), '.');
+  int col=len%SCREEN_WIDTH;
+  int row=len/SCREEN_WIDTH;
+  draw_character('_', row, col, abs(cursor_level));
+
+  draw_buffer();
+}
+
+
 
 // static long cycle = 1.0;
 // void wave_pattern(){
@@ -973,27 +1043,75 @@ void test_module_order(){
   }
 }
 
+/* --------------- main loop --------------------  */
+
+uint8_t current_mode = 0;
+std::vector<std::string> firmware_modes = {
+  {"text cli", "random characters", "words", "matrix", "board test"}
+};
+
+void next_mode(){
+  current_mode = (current_mode + 1) % firmware_modes.size();
+  Serial.printf("Changed mode to: %s\n", firmware_modes[current_mode].c_str());
+  clear_buffer();
+}
+
 void loop(){
+  // static long last_millis = 0;
+  if (button_pressed()){
+    next_mode();
+  }
+
+  switch (current_mode){
+    case 0:
+      text_cli();
+      break;
+    case 1:
+      // random characters appear and fade out
+      dim_buffer(4);
+      random_characters(random(3,20), random(190,250));
+      draw_buffer();
+      break;
+    case 2:
+      // randomly-generated sentences
+      clear_buffer();
+      generate_sentences();
+      draw_buffer();
+      for (int t=0; t<10000; t++){
+        ButtonPressStatus result = button_pressed();
+        if (result == SHORT_PRESS) {
+          break; // exit an re-generate sentence on next pass
+        } else if (result == LONG_PRESS) {
+          next_mode();
+        } else {
+          delay(1);
+        }
+      }
+      break;
+    case 3:
+      // alien symbols fall and leave trails that fade out
+      dim_buffer(3);
+      matrix();
+      draw_buffer();
+      break;
+    case 4:
+      // check each segement of every module, to check for connection problems
+      clear_buffer();
+      draw_buffer();
+      bool completed = test_all_segments();
+      if (!completed) next_mode();
+      delay(1000);
+      break;
+  }
 
   // update time
   //  time(&now);
   //  localtime_r(&now, &timeinfo);
   // // static int level = 190;
   // Serial.println(getFormattedTime());
-  // test_all_segments();
-  // scroll_all_characters();
-  //random_animation();
   
-  //delayMicroseconds(random(2, 100));
-  // Serial.println("?"); 
-
   // design_CLI();
-
-
-  // clear_buffer();
-  // draw_buffer();
-  // test_module_order();
-
+  
   // while (message_number == last_quote) {
   //   message_number = random(NUM_QUOTES);
   // }
@@ -1013,69 +1131,10 @@ void loop(){
   // last_quote = message_number;
   // message_number = (message_number + 1) % NUM_QUOTES;
 
+  // test_module_order();
+  // spirals();
+  // wave_pattern();
+  // scroll_all_characters();
 
-  // set message number to random number, but not the same as last time
-  // clear_buffer();
-  // show_message(message_number);
-  // int last_msg = message_number;
-  // while (message_number == last_msg) {
-  //   message_number = random(8);
-  // }
-
-  // random characters appear and fade out
-  dim_buffer(4);
-  for (int i=0; i<16; i++){
-    if (random(4) > 2) continue;
-    random_characters(random(190,250));
-  }
-  draw_buffer();
-
-  // matrix animation
-  // dim_buffer(3);
-  // matrix();
-  // draw_buffer();
-
-  // clear_buffer();
-  // generate_sentences();
-  // draw_buffer();
-  // delay(10000);
-
-
-  // animated pattern
-  
-  // //spirals();
-  // clear_buffer();
-  // draw_string("MOD1", 0, 0);
-  // draw_string("MOD2", 4, 1);
-  // draw_buffer();
-  // delay(5000);
-  
-  // test_all_segments(1, 3);
-
-  // if (random(100)==0){
-  //   dots[random(4)][random(4)] = random(RANDOM_RANGE)+150;
-  // }
-
-//  if (random(2)>=0){
-    // switch (random(4)){
-    //   case 0:
-    //     random_animation();
-    //     break;
-    //   case 1:
-    //     for (int i=0; i<800; i++){
-    //       wave_pattern();
-    //     }
-    //     break;
-    //   case 2:
-    //     test_all_segments(20, 10);
-    //     break;
-    //   case 3:
-    //     for (int i=0; i<100; i++){
-    //       scroll_all_characters();
-    //       //delay(10);
-    //     }
-    //     break;
-    // }
-//  }
   frame++;
 }
