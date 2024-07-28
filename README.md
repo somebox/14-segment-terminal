@@ -29,6 +29,7 @@ The PCB supports different I2C addresses, set with solder jumpers. So with a sin
 After building the rev1 prototype (see below), it was clear there were too many connection points for wires and screws to deal with. I re-designed the PCB to include four drivers, arranged in a 16 column x 3 line layout. I also added JST PH 2.0 connectors for I2C and power, with a TI level shifter/buffer to handle I2C. This prototype was working well. (July 2024)
 
 
+![Alt text](docs/16x3-rev2-module.jpeg)
 ![Alt text](docs/3dpcb-rev2.png)
 ![Alt text](docs/pcb-eda-rev2.png)
 And a special board to distribute power and I2C connections to 8x modules.

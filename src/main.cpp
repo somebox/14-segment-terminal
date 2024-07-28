@@ -1023,22 +1023,22 @@ void loop(){
   // }
 
   // random characters appear and fade out
-  // dim_buffer(4);
-  // for (int i=0; i<16; i++){
-  //   if (random(4) > 2) continue;
-  //   random_characters(random(190,250));
-  // }
-  // draw_buffer();
+  dim_buffer(4);
+  for (int i=0; i<16; i++){
+    if (random(4) > 2) continue;
+    random_characters(random(190,250));
+  }
+  draw_buffer();
 
   // matrix animation
   // dim_buffer(3);
   // matrix();
   // draw_buffer();
 
-  clear_buffer();
-  generate_sentences();
-  draw_buffer();
-  delay(10000);
+  // clear_buffer();
+  // generate_sentences();
+  // draw_buffer();
+  // delay(10000);
 
 
   // animated pattern
