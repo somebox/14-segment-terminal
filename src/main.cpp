@@ -145,6 +145,7 @@ IS31FL3733Driver drivers[NUM_BOARDS] = {
   IS31FL3733Driver(ADDR::SDA, ADDR::VCC, &i2c_read_reg, &i2c_write_reg),
   IS31FL3733Driver(ADDR::SDA, ADDR::GND, &i2c_read_reg, &i2c_write_reg),
 };
+
 // each LED Driver board can drive 16x12 LEDs
 #define WIDTH 16  // cs
 #define HEIGHT 12 // sw
@@ -258,17 +259,7 @@ struct pixel {
 };
 pixel pixels[WIDTH*HEIGHT];
 
-// void display_time(){
-//   bool show_dp = (timeinfo.tm_sec % 2 == 0);
-//   show_number(0, 0, timeinfo.tm_hour / 10, false, 240);
-//   show_number(0, 1, timeinfo.tm_hour % 10, show_dp, 240);
-//   show_number(0, 2, timeinfo.tm_min / 10, false, 100);
-//   show_number(0, 3, timeinfo.tm_min % 10, show_dp, 100);
-//   show_number(0, 4, timeinfo.tm_sec / 10, false, 50);
-//   show_number(0, 5, timeinfo.tm_sec % 10, false, 50);
-// }
 
-#include <algorithm>
 
 void draw_buffer(){
   for (int b=0; b<NUM_BOARDS; b++){
@@ -602,7 +593,7 @@ void generate_sentences(){
         sentence += joinWordsWithPadding(chosenWords);
     } while (sentence.length() < SCREEN_WIDTH*SCREEN_HEIGHT);
     // Capitalize the sentence
-    std::transform(sentence.begin(), sentence.end(), sentence.begin(), ::toupper);
+    // std::transform(sentence.begin(), sentence.end(), sentence.begin(), ::toupper);
     draw_string(String(sentence.c_str()), 0, 0);
     Serial.printf("generated sentence: '%s'\n", sentence.c_str());
 }
@@ -1083,6 +1074,7 @@ void loop(){
           break; // exit an re-generate sentence on next pass
         } else if (result == LONG_PRESS) {
           next_mode();
+          break;
         } else {
           delay(1);
         }
