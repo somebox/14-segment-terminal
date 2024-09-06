@@ -9,11 +9,14 @@
 #include <Wire.h>
 #include <WiFiManager.h>
 #include <sstream> // used for parsing and building strings
+#include <iostream>
+#include <string>
 #include "is31fl3733.hpp"
 #include "FourteenSegmentAlpha.h"
 #include "Ticker.h"
 #include "words.h"
 #include "content.h"
+#include "base64.h"
 
 using namespace IS31FL3733;
 
@@ -685,6 +688,7 @@ void matrix(){
   tick++;
 }
 
+
 void random_characters(int num, int level=100) {
   for (int i=0; i<num; i++) {
     uint16_t letter = random(32, 127);
@@ -843,7 +847,8 @@ void setup()
 
   //random_animation();
   //test_all_segments(1, 0); 
-
+  clear_buffer();
+  draw_buffer();
   // Serial.println("Connecting to WIFI...");
   // ConnectToWifi(); 
   // drivers[0].SetLEDMatrixState(LED_STATE::ON);
@@ -898,7 +903,6 @@ void design_CLI(){
   }  
 }
 
-#include <string>
 
 std::string inputBuffer;
 
@@ -945,6 +949,109 @@ void text_cli(){
 }
 
 
+#define BUFFER_SIZE 2000
+#define DEBUG_SER false
+
+std::string getChunk(std::string& input) {
+    size_t pos = input.find('$');  // Find the position of the '$' character
+    std::string chunk = "";
+
+    if (pos == std::string::npos) {
+        // If no '$' is found, return the entire input and clear the input string
+        // std::string chunk = input;
+        // input.clear();
+        //Serial.println("no delimeter");
+        return chunk;
+    }
+
+    // Extract the substring before the '$'
+    chunk = input.substr(0, pos);
+    // filter out unwanted characters
+    std::string output;
+    output.reserve(chunk.size()); // optional, avoids buffer reallocations in the loop
+    for(size_t i = 0; i < chunk.size(); ++i){
+      char c = chunk[i];
+      if ((isalnum(c) || (c == '+') || (c == '/')) || (c == '=')) output += c;
+    }
+    chunk.swap(output);
+    if (DEBUG_SER) Serial.printf("pos (%d) chunk (%d): %s\n", 
+              pos, 
+              chunk.length(), 
+              chunk.c_str()
+            );
+
+    // Erase the chunk and the '$' from the input string
+    input.erase(0, pos + 1);
+
+    return chunk;
+}
+
+std::string input="";
+std::string result;
+std::string base64="";
+// int fd = open(,  O_RDWR | O_NOCTTY);
+
+void terminal_mode(){
+  if (Serial.available() > 0) {
+    //input = Serial.readString().c_str();
+    //char c = Serial.read();
+    //if (c == 10) break;
+    //input.push_back(c);
+    // std::string chunk;
+    // std::getline(std::cin, chunk);
+    // input += chunk;
+
+    // input.append(Serial.readString().c_str());
+    //char buffer[1024];
+    //int bytes_read = read(STDIN_FILENO, buffer, sizeof buffer);
+    // int bytes_read = Serial.read(buffer, sizeof buffer);
+    //if (bytes_read > 0){
+      //for (size_t i=0; i<bytes_read; i++){
+        //u_char c=buffer[i];
+      uint16_t count = 0;
+      while (Serial.available() > 0){
+        u_char c = Serial.read();
+        if ((isalnum(c) || (c == '+') || (c == '/')) || (c == '=') || (c == '$')){
+          input += c;
+          count++;
+        } 
+      }
+      if (DEBUG_SER) Serial.printf("added %d chars to input (now %d):\n", count, input.length()); 
+      if (DEBUG_SER) Serial.printf("%s\n", input.c_str());
+    //}
+    
+    //Serial.printf("Input (%d):\n%s\n", input.length(), input.c_str());
+  }
+  if (!input.empty()){
+    base64 = getChunk(input);
+  }
+
+  if (!base64.empty()){
+    result = base64_decode(base64);
+    if (result.empty()){
+      if (DEBUG_SER) Serial.printf("base64 decode failed!\n");
+      base64.clear();
+      input.clear();
+    } else {
+      if (DEBUG_SER) Serial.printf("Base64 decoded (%d):\n", result.length());
+      // clear_buffer();
+      for (int r=0; r<SCREEN_HEIGHT; r++){
+        for (int c=0; c<SCREEN_WIDTH; c++){
+          int pos = r*SCREEN_WIDTH+c;
+          if (pos < result.length()){
+            draw_character(result[pos], r, c, 120, false);
+            if (DEBUG_SER) Serial.printf("%lc", result[pos]);
+          }
+        }
+        //
+      }
+      if (DEBUG_SER) Serial.println("\n");
+      draw_buffer();
+      base64.clear();
+    }
+  }
+
+}
 
 // static long cycle = 1.0;
 // void wave_pattern(){
@@ -1038,7 +1145,7 @@ void test_module_order(){
 
 uint8_t current_mode = 0;
 std::vector<std::string> firmware_modes = {
-  {"text cli", "random characters", "words", "matrix", "board test"}
+  {"terminal mode", "random characters", "words", "matrix", "board test"}
 };
 
 void next_mode(){
@@ -1055,7 +1162,7 @@ void loop(){
 
   switch (current_mode){
     case 0:
-      text_cli();
+      terminal_mode();
       break;
     case 1:
       // random characters appear and fade out
